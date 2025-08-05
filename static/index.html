@@ -62,8 +62,8 @@
       event.preventDefault();
       const targetUrl = document.getElementById('targetUrl').value.trim();
       if (targetUrl) {
-        // **CRITICAL FIX**: Point to the /proxy/ path
-        const proxyUrl = window.location.origin + '/proxy/' + encodeURIComponent(targetUrl);
+        // **CRITICAL FIX**: Use query string for the URL
+        const proxyUrl = window.location.origin + '/proxy?url=' + encodeURIComponent(targetUrl);
         window.open(proxyUrl, '_blank');
       }
     }
