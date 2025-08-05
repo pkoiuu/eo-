@@ -1,53 +1,24 @@
 export async function onRequest(context) {
-    const { request } = context;
-
     try {
-        const requestUrl = new URL(request.url);
-        const targetUrlParam = requestUrl.searchParams.get('url');
-
-        if (!targetUrlParam) {
-            return new Response("Query parameter 'url' is missing.", { status: 400 });
+        // This function now ignores user input and tries to fetch a known public endpoint.
+        const response = await fetch('https://httpbin.org/get');
+        
+        // Check if the fetch itself was successful
+        if (!response.ok) {
+            return new Response(`Fetch to httpbin.org failed with status: ${response.status}`, { status: 500 });
         }
 
-        let actualUrlStr = decodeURIComponent(targetUrlParam);
+        const data = await response.text();
 
-        const newHeaders = new Headers();
-        for (const [key, value] of request.headers.entries()) {
-            if (!key.toLowerCase().startsWith('cf-') && !key.toLowerCase().startsWith('x-forwarded-') && key.toLowerCase() !== 'host') {
-                newHeaders.append(key, value);
-            }
-        }
-
-        const modifiedRequest = new Request(actualUrlStr, {
-            headers: newHeaders,
-            method: request.method,
-            body: request.body,
-            redirect: 'manual'
+        const headers = new Headers({
+            'Content-Type': 'application/json; charset=utf-8',
+            'X-Diagnostics-Message': 'Fetch to httpbin.org was successful!'
         });
 
-        const response = await fetch(modifiedRequest);
-
-        const finalHeaders = new Headers();
-        for (const [key, value] of response.headers.entries()) {
-            if (key.toLowerCase() !== 'set-cookie') {
-                finalHeaders.append(key, value);
-            }
-        }
-
-        if ([301, 302, 303, 307, 308].includes(response.status)) {
-            const location = new URL(response.headers.get('location'));
-            const modifiedLocation = `/proxy?url=${encodeURIComponent(location.toString())}`;
-            finalHeaders.set('Location', modifiedLocation);
-            // For redirects, the body is often empty, so we can return it directly.
-            return new Response(response.body, { status: response.status, headers: finalHeaders });
-        }
-
-        // **CRITICAL FIX: Buffer the response body instead of streaming it.**
-        const body = await response.text();
-
-        return new Response(body, { status: response.status, headers: finalHeaders });
+        return new Response(data, { headers: headers });
 
     } catch (error) {
-        return new Response(`Proxy Error: ${error.message}`, { status: 500 });
+        // If the fetch promise itself is rejected, it will be caught here.
+        return new Response(`A critical error occurred: ${error.message}`, { status: 500 });
     }
 }
