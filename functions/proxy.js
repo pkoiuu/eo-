@@ -15,8 +15,9 @@ export async function onRequest(context) {
         let actualUrlStr = decodeURIComponent(targetUrlParam);
         actualUrlStr = ensureProtocol(actualUrlStr, requestUrl.protocol);
 
+        // **CRITICAL FIX 1: Filter out the Host header.**
         const newHeaders = filterHeaders(request.headers, 
-            key => !key.startsWith('cf-') && !key.startsWith('x-forwarded-')
+            key => !key.startsWith('cf-') && !key.startsWith('x-forwarded-') && key !== 'host'
         );
 
         const modifiedRequest = new Request(actualUrlStr, {
@@ -77,17 +78,20 @@ function handleRedirect(response) {
     });
 }
 
+// **CRITICAL FIX 2: A robust HTML path rewriter.**
 async function handleHtmlContent(response, actualUrlStr) {
     const originalText = await response.text();
     const targetOrigin = new URL(actualUrlStr).origin;
 
-    // This regex needs to rewrite relative paths to point back to our proxy.
-    const regex = new RegExp('((href|src|action)=["\\]\[\])/(?!/)', 'g');
-    
-    // Example: src="/foo" becomes src="/proxy?url=https://target.com/foo"
-    return originalText.replace(regex, (match, p1, p2) => {
-        const attribute = p2; // href, src, or action
-        return `${attribute}=\"/proxy?url=${encodeURIComponent(targetOrigin)}/`;
+    // This regex finds attributes like href="/path" or src='/path'
+    const pathRegex = /(href|src|action)=(["'])(?!https?://|//|data:)([^"']*?)\2/g;
+
+    return originalText.replace(pathRegex, (match, attr, quote, path) => {
+        // Create a full absolute URL from the path.
+        const absoluteUrl = new URL(path, actualUrlStr).href;
+        // Re-proxy this new absolute URL.
+        const proxiedUrl = `/proxy?url=${encodeURIComponent(absoluteUrl)}`;
+        return `${attr}=${quote}${proxiedUrl}${quote}`;
     });
 }
 
