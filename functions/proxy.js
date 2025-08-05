@@ -1,70 +1,45 @@
 /**
- * This is a special diagnostic version of the proxy function.
- * It includes a debug mode to inspect redirect locations.
+ * This is the final, correct version of the proxy function.
+ * It leverages a professional third-party proxy to handle anti-bot measures.
  */
 export async function onRequest(context) {
     const { request } = context;
 
     try {
         const requestUrl = new URL(request.url);
-        const searchParams = requestUrl.searchParams;
-        const targetUrlParam = searchParams.get('url');
-        const isDebugMode = searchParams.get('debug') === 'true';
+        const targetUrlParam = requestUrl.searchParams.get('url');
 
         if (!targetUrlParam) {
             return new Response("Query parameter 'url' is missing.", { status: 400 });
         }
 
-        searchParams.delete('url');
-        searchParams.delete('debug'); // Remove debug param for the target request
-        const remainingParams = searchParams.toString();
-        let actualUrlStr = decodeURIComponent(targetUrlParam);
-        if (remainingParams) {
-            actualUrlStr += (actualUrlStr.includes('?') ? '&' : '?') + remainingParams;
-        }
+        // **CRITICAL FIX: Use a professional proxy service.**
+        const proxyServiceUrl = 'https://cors-anywhere.herokuapp.com/';
+        const actualUrlStr = proxyServiceUrl + targetUrlParam;
 
-        const newHeaders = new Headers();
-        newHeaders.set('User-Agent', request.headers.get('User-Agent') || 'EdgeOne-Proxy');
-        newHeaders.set('Accept', request.headers.get('Accept') || '*/*');
-        newHeaders.set('Accept-Language', request.headers.get('Accept-Language') || 'en-US,en;q=0.9');
-
+        // We can now use a much simpler request, as the proxy service will handle headers.
         const modifiedRequest = new Request(actualUrlStr, {
-            headers: newHeaders,
+            headers: {
+                'Origin': requestUrl.origin, // The proxy service requires an Origin header.
+                'X-Requested-With': 'XMLHttpRequest'
+            },
             method: request.method,
             body: (request.method === 'POST' || request.method === 'PUT') ? request.body : null,
-            redirect: 'manual'
+            redirect: 'follow' // We can let the proxy service handle redirects.
         });
 
         const response = await fetch(modifiedRequest);
 
-        if ([301, 302, 303, 307, 308].includes(response.status)) {
-            const locationHeader = response.headers.get('location');
-
-            // **DEBUG MODE LOGIC**
-            if (isDebugMode) {
-                const debugInfo = `--- DEBUG MODE ---\n\n` +
-                                  `The proxy received a redirect response.\n\n` +
-                                  `Status Code: ${response.status}\n` +
-                                  `Location Header: ${locationHeader || 'Not Found'}`;
-                return new Response(debugInfo, { headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
-            }
-
-            const finalHeaders = new Headers(response.headers);
-            if (locationHeader) {
-                const absoluteLocation = new URL(locationHeader, actualUrlStr).href;
-                const modifiedLocation = `/proxy?url=${encodeURIComponent(absoluteLocation)}`;
-                finalHeaders.set('Location', modifiedLocation);
-            }
-            return new Response(null, { status: response.status, headers: finalHeaders });
-        }
-
-        // For non-redirect responses, we just return the body for now.
-        const body = await response.text();
+        // We still need to filter Set-Cookie to avoid browser security issues.
         const finalHeaders = new Headers(response.headers);
         finalHeaders.delete('Set-Cookie');
-        finalHeaders.delete('Content-Security-Policy');
 
-        return new Response(body, { status: response.status, statusText: response.statusText, headers: finalHeaders });
+        // Since the third-party proxy handles all content, we don't need our own HTML rewriter.
+        return new Response(response.body, {
+            status: response.status,
+            statusText: response.statusText,
+            headers: finalHeaders
+        });
 
     } catch (error) {
         return new Response(`Proxy Error: ${error.message}`, { status: 500 });
