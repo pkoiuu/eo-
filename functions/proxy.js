@@ -1,6 +1,6 @@
 /**
  * This is the final, correct version of the proxy function.
- * It correctly handles and forwards all query parameters.
+ * It includes a critical fix for handling relative redirect Locations.
  */
 export async function onRequest(context) {
     const { request } = context;
@@ -8,27 +8,17 @@ export async function onRequest(context) {
     try {
         const requestUrl = new URL(request.url);
         const searchParams = requestUrl.searchParams;
-
         const targetUrlParam = searchParams.get('url');
 
         if (!targetUrlParam) {
             return new Response("Query parameter 'url' is missing.", { status: 400 });
         }
 
-        // **CRITICAL FIX: Correctly handle all query parameters.**
-        let actualUrlStr = decodeURIComponent(targetUrlParam);
-        
-        // Remove our 'url' parameter, so we can forward the rest.
         searchParams.delete('url');
         const remainingParams = searchParams.toString();
-
-        // Append the remaining parameters to the target URL.
+        let actualUrlStr = decodeURIComponent(targetUrlParam);
         if (remainingParams) {
-            if (actualUrlStr.includes('?')) {
-                actualUrlStr += '&' + remainingParams;
-            } else {
-                actualUrlStr += '?' + remainingParams;
-            }
+            actualUrlStr += (actualUrlStr.includes('?') ? '&' : '?') + remainingParams;
         }
 
         const newHeaders = new Headers();
@@ -53,9 +43,13 @@ export async function onRequest(context) {
         }
 
         if ([301, 302, 303, 307, 308].includes(response.status)) {
-            const location = new URL(response.headers.get('location'));
-            const modifiedLocation = `/proxy?url=${encodeURIComponent(location.toString())}`;
-            finalHeaders.set('Location', modifiedLocation);
+            // **CRITICAL FIX: Correctly handle relative and absolute redirect Locations.**
+            const locationHeader = response.headers.get('location');
+            if (locationHeader) {
+                const absoluteLocation = new URL(locationHeader, actualUrlStr).href;
+                const modifiedLocation = `/proxy?url=${encodeURIComponent(absoluteLocation)}`;
+                finalHeaders.set('Location', modifiedLocation);
+            }
             return new Response(null, { status: response.status, headers: finalHeaders });
         }
 
