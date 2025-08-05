@@ -1,6 +1,6 @@
 /**
- * This is the final, correct version of the proxy function.
- * It includes a critical fix for handling relative redirect Locations.
+ * This is a special diagnostic version of the proxy function.
+ * It includes a debug mode to inspect redirect locations.
  */
 export async function onRequest(context) {
     const { request } = context;
@@ -9,12 +9,14 @@ export async function onRequest(context) {
         const requestUrl = new URL(request.url);
         const searchParams = requestUrl.searchParams;
         const targetUrlParam = searchParams.get('url');
+        const isDebugMode = searchParams.get('debug') === 'true';
 
         if (!targetUrlParam) {
             return new Response("Query parameter 'url' is missing.", { status: 400 });
         }
 
         searchParams.delete('url');
+        searchParams.delete('debug'); // Remove debug param for the target request
         const remainingParams = searchParams.toString();
         let actualUrlStr = decodeURIComponent(targetUrlParam);
         if (remainingParams) {
@@ -35,16 +37,19 @@ export async function onRequest(context) {
 
         const response = await fetch(modifiedRequest);
 
-        const finalHeaders = new Headers();
-        for (const [key, value] of response.headers.entries()) {
-            if (key.toLowerCase() !== 'set-cookie' && key.toLowerCase() !== 'content-security-policy') {
-                finalHeaders.append(key, value);
-            }
-        }
-
         if ([301, 302, 303, 307, 308].includes(response.status)) {
-            // **CRITICAL FIX: Correctly handle relative and absolute redirect Locations.**
             const locationHeader = response.headers.get('location');
+
+            // **DEBUG MODE LOGIC**
+            if (isDebugMode) {
+                const debugInfo = `--- DEBUG MODE ---\n\n` +
+                                  `The proxy received a redirect response.\n\n` +
+                                  `Status Code: ${response.status}\n` +
+                                  `Location Header: ${locationHeader || 'Not Found'}`;
+                return new Response(debugInfo, { headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
+            }
+
+            const finalHeaders = new Headers(response.headers);
             if (locationHeader) {
                 const absoluteLocation = new URL(locationHeader, actualUrlStr).href;
                 const modifiedLocation = `/proxy?url=${encodeURIComponent(absoluteLocation)}`;
@@ -53,36 +58,15 @@ export async function onRequest(context) {
             return new Response(null, { status: response.status, headers: finalHeaders });
         }
 
-        let body = response.body;
-        if (response.headers.get("Content-Type")?.includes("text/html")) {
-            body = await handleHtmlContent(response, actualUrlStr);
-        }
+        // For non-redirect responses, we just return the body for now.
+        const body = await response.text();
+        const finalHeaders = new Headers(response.headers);
+        finalHeaders.delete('Set-Cookie');
+        finalHeaders.delete('Content-Security-Policy');
 
         return new Response(body, { status: response.status, statusText: response.statusText, headers: finalHeaders });
 
     } catch (error) {
         return new Response(`Proxy Error: ${error.message}`, { status: 500 });
     }
-}
-
-// --- Helper Functions ---
-
-async function handleHtmlContent(response, actualUrlStr) {
-    const originalText = await response.text();
-
-    const rewrite = (originalUrl) => {
-        try {
-            const absoluteUrl = new URL(originalUrl, actualUrlStr).href;
-            return `/proxy?url=${encodeURIComponent(absoluteUrl)}`;
-        } catch (e) {
-            return originalUrl;
-        }
-    };
-
-    return originalText.replace(/(href|src|action|data-src)=(["'])([^"']+?)\2/g, (match, attr, quote, path) => {
-        if (path.startsWith('data:') || path.startsWith('#') || path.startsWith('//')) {
-            return match;
-        }
-        return `${attr}=${quote}${rewrite(path)}${quote}`;
-    });
 }
