@@ -38,10 +38,14 @@ export async function onRequest(context) {
             const location = new URL(response.headers.get('location'));
             const modifiedLocation = `/proxy?url=${encodeURIComponent(location.toString())}`;
             finalHeaders.set('Location', modifiedLocation);
+            // For redirects, the body is often empty, so we can return it directly.
             return new Response(response.body, { status: response.status, headers: finalHeaders });
         }
 
-        return new Response(response.body, { status: response.status, headers: finalHeaders });
+        // **CRITICAL FIX: Buffer the response body instead of streaming it.**
+        const body = await response.text();
+
+        return new Response(body, { status: response.status, headers: finalHeaders });
 
     } catch (error) {
         return new Response(`Proxy Error: ${error.message}`, { status: 500 });
