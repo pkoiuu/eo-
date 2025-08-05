@@ -1,6 +1,6 @@
 /**
  * This function handles requests to /proxy and proxies based on the 'url' query parameter.
- * This version strictly follows the logic of the original Cloudflare-Workers-Proxy project.
+ * This version includes the critical fix for Set-Cookie headers.
  */
 export async function onRequest(context) {
     const { request } = context;
@@ -30,30 +30,49 @@ export async function onRequest(context) {
         const response = await fetch(modifiedRequest);
         let body = response.body;
 
+        // **CRITICAL FIX: Create a new Headers object and filter out Set-Cookie.**
+        const finalHeaders = new Headers();
+        for (const [key, value] of response.headers.entries()) {
+            if (key.toLowerCase() !== 'set-cookie') {
+                finalHeaders.append(key, value);
+            }
+        }
+
+        // Add our own required headers.
+        setNoCacheHeaders(finalHeaders);
+        setCorsHeaders(finalHeaders);
+
         if ([301, 302, 303, 307, 308].includes(response.status)) {
-            return handleRedirect(response);
-        } else if (response.headers.get("Content-Type")?.includes("text/html")) {
+            // For redirects, we must also filter the headers.
+            const location = new URL(response.headers.get('location'));
+            const modifiedLocation = `/proxy?url=${encodeURIComponent(location.toString())}`;
+            finalHeaders.set('Location', modifiedLocation);
+
+            return new Response(response.body, {
+                status: response.status,
+                statusText: response.statusText,
+                headers: finalHeaders
+            });
+        }
+
+        if (response.headers.get("Content-Type")?.includes("text/html")) {
             body = await handleHtmlContent(response, actualUrlStr);
         }
 
         const modifiedResponse = new Response(body, {
             status: response.status,
             statusText: response.statusText,
-            headers: response.headers
+            headers: finalHeaders // Use the sanitized headers
         });
-
-        setNoCacheHeaders(modifiedResponse.headers);
-        setCorsHeaders(modifiedResponse.headers);
 
         return modifiedResponse;
 
     } catch (error) {
-        // Return a more informative error message for debugging.
         return new Response(`Proxy Error: ${error.message}`, { status: 500 });
     }
 }
 
-// --- Helper Functions (Strictly adapted from original project) ---
+// --- Helper Functions (handleRedirect removed as logic is now inline) ---
 
 function ensureProtocol(url, defaultProtocol) {
     if (url.startsWith("http://") || url.startsWith("https://")) {
@@ -65,37 +84,15 @@ function ensureProtocol(url, defaultProtocol) {
     return url;
 }
 
-function handleRedirect(response) {
-    const location = new URL(response.headers.get('location'));
-    const modifiedLocation = `/proxy?url=${encodeURIComponent(location.toString())}`;
-    const headers = new Headers(response.headers);
-    headers.set('Location', modifiedLocation);
-
-    return new Response(response.body, {
-        status: response.status,
-        statusText: response.statusText,
-        headers: headers
-    });
-}
-
 async function handleHtmlContent(response, actualUrlStr) {
     const originalText = await response.text();
     const targetOrigin = new URL(actualUrlStr).origin;
 
-    // This regex is logically equivalent to the one in the original project.
-    // It finds root-relative paths like href="/path" and prepends the proxy URL.
     const regex = /(href|src|action)=(["'])\/([^\/][^"']*?)\2/g;
 
     return originalText.replace(regex, (match, attr, quote, path) => {
         const proxiedUrl = `/proxy?url=${encodeURIComponent(`${targetOrigin}/${path}`)}`;
         return `${attr}=${quote}${proxiedUrl}${quote}`;
-    });
-}
-
-function jsonResponse(data, status) {
-    return new Response(JSON.stringify(data), {
-        status: status,
-        headers: { 'Content-Type': 'application/json; charset=utf-8' }
     });
 }
 
