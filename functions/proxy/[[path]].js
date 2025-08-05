@@ -1,18 +1,19 @@
 /**
- * This function handles all non-root requests and acts as the proxy.
+ * This function handles all requests to /proxy/ and acts as the proxy.
  */
 export async function onRequest(context) {
-    const { request } = context;
+    const { request, params } = context;
 
     try {
-        const requestUrl = new URL(request.url);
-        const pathname = requestUrl.pathname;
+        // The 'path' parameter from the filename [[path]].js captures the rest of the URL.
+        // It's an array of path segments, so we join them.
+        let targetUrlParam = params.path.join('/');
 
-        if (pathname.length <= 1) {
-            return new Response("Invalid proxy request.", { status: 400 });
+        if (!targetUrlParam) {
+            return new Response("Target URL is missing.", { status: 400 });
         }
 
-        let targetUrlParam = pathname.substring(1);
+        const requestUrl = new URL(request.url);
         const originalQueryString = requestUrl.search;
 
         let actualUrlStr = decodeURIComponent(targetUrlParam);
@@ -69,7 +70,8 @@ function ensureProtocol(url, defaultProtocol) {
 
 function handleRedirect(response) {
     const location = new URL(response.headers.get('location'));
-    const modifiedLocation = `/${encodeURIComponent(location.toString())}`;
+    // Important: The new location must also be routed through our proxy.
+    const modifiedLocation = `/proxy/${encodeURIComponent(location.toString())}`;
     const headers = new Headers(response.headers);
     headers.set('Location', modifiedLocation);
 
@@ -84,9 +86,12 @@ async function handleHtmlContent(response, actualUrlStr) {
     const originalText = await response.text();
     const targetOrigin = new URL(actualUrlStr).origin;
 
-    const regex = new RegExp('((href|src|action)=["\\])/(?!/)', 'g');
+    // Regex to find relative paths in href, src, and action attributes.
+    const regex = new RegExp('((href|src|action)=["
+iversal_newline_placeholder"])(\/(?!\/))', 'g');
     
-    return originalText.replace(regex, `$1/${targetOrigin}/`);
+    // Prepend the proxy path and the target origin to make the paths absolute *to our proxy*.
+    return originalText.replace(regex, `$1/proxy/${targetOrigin}/`);
 }
 
 function jsonResponse(data, status) {
