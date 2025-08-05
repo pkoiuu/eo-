@@ -8,7 +8,6 @@ export async function onRequest(context) {
         const requestUrl = new URL(request.url);
         const pathname = requestUrl.pathname;
 
-        // The path should never be the root here, but as a fallback.
         if (pathname.length <= 1) {
             return new Response("Invalid proxy request.", { status: 400 });
         }
