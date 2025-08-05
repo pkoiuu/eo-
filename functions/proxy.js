@@ -1,5 +1,6 @@
 /**
  * This function handles requests to /proxy and proxies based on the 'url' query parameter.
+ * This version strictly follows the logic of the original Cloudflare-Workers-Proxy project.
  */
 export async function onRequest(context) {
     const { request } = context;
@@ -15,7 +16,6 @@ export async function onRequest(context) {
         let actualUrlStr = decodeURIComponent(targetUrlParam);
         actualUrlStr = ensureProtocol(actualUrlStr, requestUrl.protocol);
 
-        // **CRITICAL FIX 1: Filter out the Host header.**
         const newHeaders = filterHeaders(request.headers, 
             key => !key.startsWith('cf-') && !key.startsWith('x-forwarded-') && key !== 'host'
         );
@@ -48,11 +48,12 @@ export async function onRequest(context) {
         return modifiedResponse;
 
     } catch (error) {
-        return jsonResponse({ error: error.message }, 500);
+        // Return a more informative error message for debugging.
+        return new Response(`Proxy Error: ${error.message}`, { status: 500 });
     }
 }
 
-// --- Helper Functions ---
+// --- Helper Functions (Strictly adapted from original project) ---
 
 function ensureProtocol(url, defaultProtocol) {
     if (url.startsWith("http://") || url.startsWith("https://")) {
@@ -66,7 +67,6 @@ function ensureProtocol(url, defaultProtocol) {
 
 function handleRedirect(response) {
     const location = new URL(response.headers.get('location'));
-    // Important: The new location must also be routed through our proxy via query string.
     const modifiedLocation = `/proxy?url=${encodeURIComponent(location.toString())}`;
     const headers = new Headers(response.headers);
     headers.set('Location', modifiedLocation);
@@ -78,19 +78,16 @@ function handleRedirect(response) {
     });
 }
 
-// **CRITICAL FIX 2: A robust HTML path rewriter.**
 async function handleHtmlContent(response, actualUrlStr) {
     const originalText = await response.text();
     const targetOrigin = new URL(actualUrlStr).origin;
 
-    // This regex finds attributes like href="/path" or src='/path'
-    const pathRegex = /(href|src|action)=(["'])(?!https?://|//|data:)([^"']*?)\2/g;
+    // This regex is logically equivalent to the one in the original project.
+    // It finds root-relative paths like href="/path" and prepends the proxy URL.
+    const regex = /(href|src|action)=(["'])\/([^\/][^"']*?)\2/g;
 
-    return originalText.replace(pathRegex, (match, attr, quote, path) => {
-        // Create a full absolute URL from the path.
-        const absoluteUrl = new URL(path, actualUrlStr).href;
-        // Re-proxy this new absolute URL.
-        const proxiedUrl = `/proxy?url=${encodeURIComponent(absoluteUrl)}`;
+    return originalText.replace(regex, (match, attr, quote, path) => {
+        const proxiedUrl = `/proxy?url=${encodeURIComponent(`${targetOrigin}/${path}`)}`;
         return `${attr}=${quote}${proxiedUrl}${quote}`;
     });
 }
