@@ -30,7 +30,7 @@
     }
   </style>
 </head>
-<body class="dark:bg-slate-900">
+<body>
   <div class="relative min-h-screen w-full flex items-center justify-center p-4 gradient-bg">
     <div class="w-full max-w-lg">
       <div class="rounded-xl shadow-2xl card-bg">
@@ -62,7 +62,7 @@
       event.preventDefault();
       const targetUrl = document.getElementById('targetUrl').value.trim();
       if (targetUrl) {
-        const proxyUrl = window.location.origin + '/' + encodeURIComponent(targetUrl);
+        const proxyUrl = window.location.origin + '/proxy?url=' + encodeURIComponent(targetUrl);
         window.open(proxyUrl, '_blank');
       }
     }
