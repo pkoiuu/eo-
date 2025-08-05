@@ -53,7 +53,7 @@
         </div>
       </div>
       <footer class="text-center mt-6">
-        <p class="text-sm text-white/70">由 EdgeOne Pages 强力驱动。在 GitHub 上Fork 我。</p>
+        <p class="text-sm text-white/70">由 EdgeOne Pages 强力驱动。在 GitHub 上 Fork 我。</p>
       </footer>
     </div>
   </div>
@@ -62,12 +62,10 @@
       event.preventDefault();
       const targetUrl = document.getElementById('targetUrl').value.trim();
       if (targetUrl) {
-        // **CRITICAL FIX**: Use query string for the URL
-        const proxyUrl = window.location.origin + '/proxy?url=' + encodeURIComponent(targetUrl);
+        const proxyUrl = window.location.origin + '/' + encodeURIComponent(targetUrl);
         window.open(proxyUrl, '_blank');
       }
     }
-    // Auto-switch dark mode based on system preference
     if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
       document.documentElement.classList.add('dark');
     }
